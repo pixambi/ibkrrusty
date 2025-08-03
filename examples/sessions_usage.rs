@@ -1,28 +1,45 @@
+use dotenv::dotenv;
 use ibkrrusty::prelude::*;
 use std::time::Duration;
 use tokio::time::sleep;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let client = Client::new(Some("https://localhost:5000/v1/api/"))?;
+    // Load environment variables from .env file
+    dotenv().ok();
+
+    // Create client - will automatically use PORT from .env or default to 5000
+    let client = Client::new()?;
+
+    // You can also explicitly set a port if needed:
+    // let client = Client::with_port(5004)?;
 
     println!("🚀 Starting IBKR session management example");
+    println!("📡 Connecting to IBKR Gateway on port: {}",
+             std::env::var("PORT").unwrap_or_else(|_| "5000 (default)".to_string()));
 
-    println!("\n📊 Checking authentication status...");
+    println!("\n📊 Checking initial authentication status...");
+
     match client.auth_status().await {
         Ok(status) => {
-            println!("✅ Authentication Status:");
-            println!("  - Authenticated: {}", status.authenticated);
+            println!("✅ API Connection successful!");
+            println!("  - Authenticated: {} (expected: false initially)", status.authenticated);
             println!("  - Connected: {}", status.connected);
             println!("  - Competing: {}", status.competing);
             println!("  - Message: {}", status.message);
             if let Some(server_info) = &status.server_info {
                 println!("  - Server: {} ({})", server_info.server_name, server_info.server_version);
             }
+
+            if !status.authenticated {
+                println!("📝 Note: authenticated=false is normal before session initialization");
+            }
         }
         Err(e) => {
-            println!("❌ Failed to get auth status: {:?}", e);
-            println!("💡 Make sure IBKR Client Portal Gateway is running on localhost:5000");
+            println!("❌ Failed to get auth status: {}", e);
+            println!("💡 Make sure you're logged into the IBKR Gateway web interface first");
+            println!("   Visit: https://localhost:{}",
+                     std::env::var("PORT").unwrap_or_else(|_| "5000".to_string()));
             return Ok(());
         }
     }
@@ -34,9 +51,23 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             println!("  - Authenticated: {}", init_response.authenticated);
             println!("  - Connected: {}", init_response.connected);
             println!("  - Competing: {}", init_response.competing);
+
+            // Check status again after initialization
+            println!("\n🔄 Checking authentication status after initialization...");
+            match client.auth_status().await {
+                Ok(status) => {
+                    println!("📊 Updated Authentication Status:");
+                    println!("  - Authenticated: {} (should now be true)", status.authenticated);
+                    println!("  - Connected: {}", status.connected);
+                    println!("  - Message: {}", status.message);
+                }
+                Err(e) => {
+                    println!("⚠️  Could not check updated status: {}", e);
+                }
+            }
         }
         Err(e) => {
-            println!("❌ Failed to initialize session: {:?}", e);
+            println!("❌ Failed to initialize session: {}", e);
         }
     }
 
@@ -47,7 +78,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             println!("  - Authenticated: {}", hmds_response.authenticated);
         }
         Err(e) => {
-            println!("⚠️  HMDS initialization failed: {:?}", e);
+            println!("⚠️  HMDS initialization failed: {}", e);
             println!("   This might be normal if historical data is not needed");
         }
     }
@@ -67,7 +98,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         }
         Err(e) => {
-            println!("⚠️  SSO validation failed: {:?}", e);
+            println!("⚠️  SSO validation failed: {}", e);
             println!("   This might be normal if not using OAuth");
         }
     }
@@ -92,7 +123,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         }
         Err(e) => {
-            println!("❌ Tickle failed: {:?}", e);
+            println!("❌ Tickle failed: {}", e);
         }
     }
 
@@ -105,18 +136,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         match client.tickle().await {
             Ok(_) => println!("    ✅ Session maintained"),
-            Err(e) => println!("    ❌ Keepalive failed: {:?}", e),
+            Err(e) => println!("    ❌ Keepalive failed: {}", e),
         }
     }
 
-
     println!("\n🎉 Session management example completed!");
-    println!("\n💡 Next steps:");
-    println!("   - Implement account endpoints for portfolio data");
-    println!("   - Add market data endpoints for real-time quotes");
-    println!("   - Implement trading endpoints for order management");
-    println!("   - Set up proper session keepalive in your application");
-
     Ok(())
 }
 
@@ -136,13 +160,13 @@ async fn session_keepalive_manager(client: Client, interval_seconds: u64) -> Res
                 }
             }
             Err(e) => {
-                println!("❌ Session keepalive failed: {:?}", e);
+                println!("❌ Session keepalive failed: {}", e);
                 println!("🔄 Attempting to reinitialize session...");
 
                 match client.init_session(true).await {
                     Ok(_) => println!("✅ Session reinitialized successfully"),
                     Err(e) => {
-                        println!("❌ Failed to reinitialize session: {:?}", e);
+                        println!("❌ Failed to reinitialize session: {}", e);
                         break;
                     }
                 }

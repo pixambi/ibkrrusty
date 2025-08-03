@@ -12,6 +12,7 @@ pub struct Client {
 pub enum ClientError {
     ParseError(ParseError),
     RequestError(reqwest::Error),
+    EnvError(String),
 }
 
 impl From<ParseError> for ClientError {
@@ -26,27 +27,54 @@ impl From<reqwest::Error> for ClientError {
     }
 }
 
+impl std::fmt::Display for ClientError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ClientError::ParseError(e) => write!(f, "URL parse error: {}", e),
+            ClientError::RequestError(e) => write!(f, "Request error: {}", e),
+            ClientError::EnvError(e) => write!(f, "Environment error: {}", e),
+        }
+    }
+}
+
+impl std::error::Error for ClientError {}
+
 impl Client {
+    pub fn new() -> Result<Self, ClientError> {
+        let port = Self::get_port_from_env();
+        let base_url = format!("https://localhost:{}/v1/api/", port);
+        Self::with_base_url(&base_url)
+    }
 
-    pub fn new(base_url: Option<&str>) -> Result<Self, ClientError> {
-        let url = base_url.unwrap_or("https://localhost:5000/v1/api/");
-
+    pub fn with_base_url(base_url: &str) -> Result<Self, ClientError> {
         Ok(Self {
             http: HttpClient::builder()
-                .danger_accept_invalid_certs(true) // IBKR gateway uses self-signed certificates
+                .danger_accept_invalid_certs(true)
+                .cookie_store(true)
                 .build()
                 .map_err(ClientError::RequestError)?,
-            base_url: url::Url::parse(url)?,
+            base_url: url::Url::parse(base_url)?,
         })
+    }
+
+    pub fn with_port(port: u16) -> Result<Self, ClientError> {
+        let base_url = format!("https://localhost:{}/v1/api/", port);
+        Self::with_base_url(&base_url)
     }
 
     pub fn with_client(http_client: HttpClient, base_url: Option<&str>) -> Result<Self, ClientError> {
         let url = base_url.unwrap_or("https://localhost:5000/v1/api/");
-
         Ok(Self {
             http: http_client,
             base_url: url::Url::parse(url)?,
         })
+    }
+
+    fn get_port_from_env() -> u16 {
+        std::env::var("PORT")
+            .ok()
+            .and_then(|port_str| port_str.parse().ok())
+            .unwrap_or(5000)
     }
 
     pub(crate) fn request(
@@ -67,7 +95,7 @@ impl Client {
             _ => {
                 response
                     .error_for_status()
-                    .map(|_| ()) // Convert success response to ()
+                    .map(|_| ())
                     .map_err(ClientError::RequestError)
             }
         }
@@ -75,12 +103,10 @@ impl Client {
 
     fn default_headers(&self) -> Result<HeaderMap, ClientError> {
         let mut headers = HeaderMap::new();
-
         headers.insert(
             "User-Agent",
             HeaderValue::from_static("ibkrrusty/0.1.0")
         );
-
         Ok(headers)
     }
 }

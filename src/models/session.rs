@@ -30,7 +30,7 @@ pub struct InitSessionRequest {
 impl InitSessionRequest {
     pub fn new(compete: bool) -> Self {
         Self {
-            publish: true, // Always true as per documentation
+            publish: true,
             compete,
         }
     }
